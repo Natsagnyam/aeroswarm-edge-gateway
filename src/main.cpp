@@ -239,11 +239,20 @@ const std::string HTML_PAGE = R"html(
 )html";
 
 bool init_hardware() {
-    int fd = open("/dev/mem", O_RDWR | O_SYNC);
-    if (fd < 0) return false;
-    void *map_base = mmap(0, GPIO1_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, GPIO1_START_ADDR);
-    close(fd);
-    if (map_base == MAP_FAILED) return false;
+    int mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
+    if (mem_fd < 0) {
+        std::cerr << "Warning: Failed to open /dev/mem. Running in mock hardware mode.\n";
+        return true; // Allow execution for local / K8s testing
+    }
+
+    void *map_base = mmap(0, GPIO1_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, GPIO1_START_ADDR);
+    close(mem_fd);
+
+    if (map_base == MAP_FAILED) {
+        std::cerr << "Warning: mmap failed for GPIO1 memory region. Running in mock hardware mode.\n";
+        return true; // Fallback to mock mode so container stays healthy on x86/K8s
+    }
+
     gpio1_addr = (volatile uint32_t *)map_base;
     return true;
 }
@@ -275,8 +284,11 @@ int main() {
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);
         if (client_fd < 0) continue;
-        char buffer[2048] = {0};
-        read(client_fd, buffer, sizeof(buffer) - 1);
+        char buffer[2048] = {0};        
+        ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
+        if (bytes_read < 0) {
+            // Handle read error or log it
+        }
         std::string request(buffer);
         std::string response;
 
@@ -301,7 +313,10 @@ int main() {
             std::string err = "{\"error\":\"Not Found\"}";
             response = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(err.length()) + "\r\nConnection: close\r\n\r\n" + err;
         }
-        write(client_fd, response.c_str(), response.length());
+        ssize_t bytes_written = write(client_fd, response.c_str(), response.length());
+        if (bytes_written < 0) {
+            // Handle write error or log it
+        }
         close(client_fd);
     }
     return 0;

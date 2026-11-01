@@ -4,35 +4,53 @@ metadata:
   name: aeroswarm-edge-gateway
   namespace: default
   labels:
-    app: aeroswarm-gateway
-    tier: edge-iot
+    app: aeroswarm-edge-gateway
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: aeroswarm-gateway
+      app: aeroswarm-edge-gateway
   template:
     metadata:
       labels:
-        app: aeroswarm-gateway
+        app: aeroswarm-edge-gateway
     spec:
-      hostNetwork: true  # Required for direct host MMIO hardware access
       containers:
-      - name: gateway-server
+      - name: gateway
         image: aeroswarm-edge-gateway:latest
         imagePullPolicy: Never
-        securityContext:
-          privileged: true # Grants access to /dev/mem for GPIO register mapping
         ports:
         - containerPort: 8080
-          name: http-rest
+          name: http
         resources:
           limits:
-            cpu: "250m"
-            memory: "64Mi"
+            cpu: "500m"
+            memory: "512Mi"
           requests:
-            cpu: "50m"
-            memory: "16Mi"
+            cpu: "100m"
+            memory: "128Mi"
+      - name: tailscale
+        image: tailscale/tailscale:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: TS_AUTHKEY
+          valueFrom:
+            secretKeyRef:
+              name: tailscale-auth
+              key: TS_AUTHKEY
+        - name: TS_STATE_DIR
+          value: /var/lib/tailscale
+        - name: TS_USERSPACE
+          value: "false"
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN", "NET_RAW"]
+        volumeMounts:
+        - name: tailscale-state
+          mountPath: /var/lib/tailscale
+      volumes:
+      - name: tailscale-state
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -40,11 +58,10 @@ metadata:
   name: aeroswarm-gateway-service
   namespace: default
 spec:
-  type: NodePort
   selector:
-    app: aeroswarm-gateway
+    app: aeroswarm-edge-gateway
   ports:
-    - protocol: TCP
-      port: 8080
-      targetPort: 8080
-      nodePort: 30808
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
