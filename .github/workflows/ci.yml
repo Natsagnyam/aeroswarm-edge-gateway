@@ -1,0 +1,33 @@
+name: CI/CD Build & Test
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Build Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake
+
+    - name: Compile Gateway and Mock Hardware
+      run: |
+        mkdir -p build
+        cd build
+        cmake ..
+        make -j$(nproc)
+      
+    - name: Build Docker Container Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: aeroswarm-edge-gateway:latest
